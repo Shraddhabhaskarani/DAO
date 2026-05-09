@@ -9,7 +9,10 @@ import pytorch_lightning as pl
 import torch
 from omegaconf import DictConfig
 from torch.utils.data import Dataset
-from torch_geometric.data import DataLoader
+try:
+    from torch_geometric.loader import DataLoader
+except ImportError:
+    from torch_geometric.data import DataLoader
 
 from dao.common.utils import PROJECT_ROOT
 from dao.common.data_utils import get_scaler_from_data_list
@@ -77,8 +80,8 @@ class CrystDataModule(pl.LightningDataModule):
                 key=train_dataset.prop)
         else:
             try:
-                self.lattice_scaler = torch.load(Path(scaler_path) / 'lattice_scaler.pt')
-                self.scaler = torch.load(Path(scaler_path) / 'prop_scaler.pt')
+                self.lattice_scaler = torch.load(Path(scaler_path) / 'lattice_scaler.pt', weights_only=False)
+                self.scaler = torch.load(Path(scaler_path) / 'prop_scaler.pt', weights_only=False)
             except:
                 train_dataset = hydra.utils.instantiate(self.datasets.train)
                 self.lattice_scaler = get_scaler_from_data_list(

@@ -14,7 +14,7 @@ from networkx.algorithms.components import is_connected
 
 from sklearn.metrics import accuracy_score, recall_score, precision_score
 
-from torch_scatter import scatter
+from dao.common.scatter_compat import scatter
 from torch_scatter import segment_coo, segment_csr
 
 from p_tqdm import p_umap

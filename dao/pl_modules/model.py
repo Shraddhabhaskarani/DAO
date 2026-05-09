@@ -7,7 +7,7 @@ import torch
 import pytorch_lightning as pl
 import torch.nn as nn
 from torch.nn import functional as F
-from torch_scatter import scatter
+from dao.common.scatter_compat import scatter
 from tqdm import tqdm
 
 from dao.common.utils import PROJECT_ROOT

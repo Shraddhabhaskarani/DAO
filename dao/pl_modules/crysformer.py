@@ -4,8 +4,7 @@ import torch.nn.functional as F
 
 import math
 from dao.common.utils import CGCNN_LIST, exists
-from torch_scatter import scatter
-from torch_scatter.composite import scatter_softmax
+from dao.common.scatter_compat import scatter, scatter_softmax
 from torch_geometric.utils import to_dense_adj, dense_to_sparse
 from einops import rearrange, repeat
 

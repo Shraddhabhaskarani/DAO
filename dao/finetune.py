@@ -74,7 +74,8 @@ def run(cfg: DictConfig) -> None:
             f"Forcing debugger friendly configuration!"
         )
         # Debuggers don't like GPUs nor multiprocessing
-        cfg.train.pl_trainer.gpus = 0
+        cfg.train.pl_trainer.accelerator = "cpu"
+        cfg.train.pl_trainer.devices = 1
         cfg.data.datamodule.num_workers.train = 0
         cfg.data.datamodule.num_workers.val = 0
         cfg.data.datamodule.num_workers.test = 0
@@ -84,7 +85,7 @@ def run(cfg: DictConfig) -> None:
 
     # Hydra run directory
     hydra_dir = Path(HydraConfig.get().run.dir)
-    
+
     # Instantiate datamodule
     hydra.utils.log.info(f"Instantiating <{cfg.data.datamodule._target_}>")
     datamodule: pl.LightningDataModule = hydra.utils.instantiate(
@@ -107,7 +108,6 @@ def run(cfg: DictConfig) -> None:
         from_scratch=cfg.train.from_scratch,
         pretrain_mode=cfg.train.pretrain_mode,
         powerful_predictor=cfg.train.powerful_predictor,
-        terminate_on_nan=True,
         _recursive_=False,
     )
 
@@ -142,20 +142,6 @@ def run(cfg: DictConfig) -> None:
     yaml_conf: str = OmegaConf.to_yaml(cfg=cfg)
     (hydra_dir / "hparams.yaml").write_text(yaml_conf)
 
-    # Load checkpoint (if exist)
-    ckpts = list(hydra_dir.glob('*.ckpt'))
-    if len(ckpts) > 0:
-        last_ckpt = os.path.join(os.path.dirname(ckpts[0]), 'last.ckpt')
-        if os.path.exists(last_ckpt):
-            ckpt = last_ckpt
-        else:
-            ckpt_epochs = np.array([int(ckpt.parts[-1].split('-')[0].split('=')[1]) for ckpt in ckpts if ckpt.parts[-1]])
-            ckpt = str(ckpts[ckpt_epochs.argsort()[-1]])
-            hydra.utils.log.info(f"found checkpoint: {ckpt}")
-    else:
-        ckpt = None
-
-    ckpt=None
     hydra.utils.log.info("Instantiating the Trainer")
 
     trainer = pl.Trainer(
@@ -164,8 +150,7 @@ def run(cfg: DictConfig) -> None:
         callbacks=callbacks,
         deterministic=cfg.train.deterministic,
         check_val_every_n_epoch=cfg.logging.val_check_interval,
-        progress_bar_refresh_rate=cfg.logging.progress_bar_refresh_rate,
-        resume_from_checkpoint=ckpt,
+        enable_progress_bar=True,
         **cfg.train.pl_trainer,
     )
 

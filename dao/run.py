@@ -75,7 +75,8 @@ def run(cfg: DictConfig) -> None:
             f"Forcing debugger friendly configuration!"
         )
         # Debuggers don't like GPUs nor multiprocessing
-        cfg.train.pl_trainer.gpus = 0
+        cfg.train.pl_trainer.accelerator = "cpu"
+        cfg.train.pl_trainer.devices = 1
         cfg.data.datamodule.num_workers.train = 0
         cfg.data.datamodule.num_workers.val = 0
         cfg.data.datamodule.num_workers.test = 0
@@ -141,9 +142,7 @@ def run(cfg: DictConfig) -> None:
         callbacks=callbacks,
         deterministic=cfg.train.deterministic,
         check_val_every_n_epoch=cfg.logging.val_check_interval,
-        progress_bar_refresh_rate=cfg.logging.progress_bar_refresh_rate,
-        resume_from_checkpoint=None,
-        terminate_on_nan=True,
+        enable_progress_bar=True,
         **cfg.train.pl_trainer,
     )
 
@@ -158,20 +157,9 @@ def run(cfg: DictConfig) -> None:
             hydra.utils.log.info("Start training!")
             trainer.fit(model=model, datamodule=datamodule)
         else:
-            trainer = pl.Trainer(
-                default_root_dir=hydra_dir,
-                logger=wandb_logger,
-                callbacks=callbacks,
-                deterministic=cfg.train.deterministic,
-                check_val_every_n_epoch=cfg.logging.val_check_interval,
-                progress_bar_refresh_rate=cfg.logging.progress_bar_refresh_rate,
-                resume_from_checkpoint=cfg.ckpt_path,
-                terminate_on_nan=True,
-                **cfg.train.pl_trainer,
-            )
             # resume training
             hydra.utils.log.info(f"Resume training from checkpoint {cfg.ckpt_path}")
-            trainer.fit(model=model, datamodule=datamodule)
+            trainer.fit(model=model, datamodule=datamodule, ckpt_path=cfg.ckpt_path)
     else:
         # train
         hydra.utils.log.info("Start training!")

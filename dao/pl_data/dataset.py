@@ -49,7 +49,7 @@ class CrystDataset(Dataset):
 
     def preprocess(self, save_path, preprocess_workers, prop):
         if os.path.exists(save_path):
-            self.cached_data = torch.load(save_path)
+            self.cached_data = torch.load(save_path, weights_only=False)
             print(save_path)
             print('==================data_num: ', len(self.cached_data))
         else:
@@ -172,7 +172,7 @@ class MyDataset(Dataset):
         try:
             self.ori_data = torch.load(ori_path, map_location='cpu', weights_only=False)
         except TypeError:
-            self.ori_data = torch.load(ori_path, map_location='cpu')
+            self.ori_data = torch.load(ori_path, map_location='cpu', weights_only=False)
         self.prop = prop
         self.stable_threshold = stable_threshold
         self.transform_prop = transform_prop
@@ -186,7 +186,7 @@ class MyDataset(Dataset):
         try:
             res = torch.load(path, map_location='cpu', weights_only=False)
         except TypeError:
-            res = torch.load(path, map_location='cpu')
+            res = torch.load(path, map_location='cpu', weights_only=False)
         output_list = []
         for idx in range(self.sample_size):
             frac_coords = res['frac_coords'][idx]

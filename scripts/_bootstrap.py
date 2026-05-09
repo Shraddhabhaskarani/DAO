@@ -23,9 +23,23 @@ def ensure_repo_on_path() -> Path:
     return root
 
 
+def _patch_torch_load() -> None:
+    """Force torch.load to use weights_only=False for checkpoint compatibility."""
+    try:
+        import torch
+        _orig_load = torch.load
+        def _load_wrapper(*args, **kwargs):
+            kwargs.setdefault('weights_only', False)
+            return _orig_load(*args, **kwargs)
+        torch.load = _load_wrapper
+    except ImportError:
+        pass
+
+
 def set_default_env() -> None:
     root = ensure_repo_on_path()
     os.environ.setdefault("PROJECT_ROOT", str(root))
     os.environ.setdefault("HYDRA_JOBS", str(root / "outputs" / "hydra"))
     os.environ.setdefault("WANDB_DIR", str(root / "outputs" / "wandb"))
+    _patch_torch_load()
 

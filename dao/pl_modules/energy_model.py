@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 import hydra
 import pytorch_lightning as pl
-from torch_scatter import scatter
+from dao.common.scatter_compat import scatter
 from tqdm import tqdm
 import copy
 from dao.common.utils import PROJECT_ROOT

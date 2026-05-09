@@ -76,7 +76,7 @@ class RequiresGradContext(object):
 
 
 def load_state_dict_from_checkpoint(ckpt_path):
-    ckpt = torch.load(ckpt_path, map_location="cpu")
+    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     state_dict = ckpt["state_dict"]
     return state_dict
 
