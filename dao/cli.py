@@ -173,7 +173,8 @@ def cmd_csp_finetune(args: argparse.Namespace) -> int:
         f"optim.optimizer.lr={args.lr}",
         f"optim.optimizer.weight_decay={args.weight_decay}",
         f"train.finetune_mode=gen",
-        f"train.pl_trainer.gpus={args.gpus}",
+        f"train.pl_trainer.devices={args.gpus}",
+        "train.pl_trainer.accelerator=gpu",
     ]
     overrides.extend(args.overrides or [])
     return _run_python("dao/finetune.py", overrides, env=env, cwd=root)

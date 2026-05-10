@@ -105,14 +105,17 @@ def diffusion(loader, model, num_evals, energy_model=None, idx_pool=None, step_l
 
 
 
-def load_data(data_cfg, model_path=None, testing=True):
+def load_data(data_cfg, model_path=None, testing=True, test_batch_size=None):
     datamodule = hydra.utils.instantiate(
-            data_cfg.datamodule, pretrain=False, _recursive_=False, scaler_path=model_path
+            data_cfg.datamodule, pretrain=False, _recursive=False, scaler_path=model_path
         )
-    
+
     if testing:
         datamodule.setup('test')
         test_loader = datamodule.test_dataloader()[0]
+        if test_batch_size is not None and test_batch_size < test_loader.batch_size:
+            from torch_geometric.loader import DataLoader
+            test_loader = DataLoader(test_loader.dataset, batch_size=test_batch_size, shuffle=False)
     else:
         datamodule.setup()
         train_loader = datamodule.train_dataloader(shuffle=False)
@@ -156,7 +159,7 @@ def main(args):
             if args.stable_only:
                 test_path=cfg.data.datamodule.datasets.test[0]["save_path"]
                 cfg.data.datamodule.datasets.test[0]["save_path"] = osp.join(osp.dirname(test_path), 'stable_test_ori.pt')
-            test_loader, datamodule = load_data(cfg.data, running_dir)
+            test_loader, datamodule = load_data(cfg.data, running_dir, test_batch_size=40 if args.energy_guidance else None)
 
         
         if datamodule.scaler is not None:
@@ -168,6 +171,9 @@ def main(args):
     else:
          model, test_loader, cfg = load_model(
             model_path, load_data=True, from_scratch=args.from_scratch)
+         if args.energy_guidance and test_loader.batch_size > 40:
+            from torch_geometric.loader import DataLoader
+            test_loader = DataLoader(test_loader.dataset, batch_size=40, shuffle=False)
 
     
     if args.energy_model_path != '':
