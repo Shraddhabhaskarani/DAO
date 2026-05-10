@@ -29,7 +29,7 @@ def _patch_torch_load() -> None:
         import torch
         _orig_load = torch.load
         def _load_wrapper(*args, **kwargs):
-            kwargs.setdefault('weights_only', False)
+            kwargs['weights_only'] = False
             return _orig_load(*args, **kwargs)
         torch.load = _load_wrapper
     except ImportError:
