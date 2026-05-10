@@ -53,7 +53,7 @@ def diffusion(loader, model, num_evals, energy_model=None, idx_pool=None, step_l
     trajs = []
     
     for idx, batch in enumerate(loader):
-        if args.end != -1 and idx not in idx_pool:
+        if idx_pool is not None and idx not in idx_pool:
             continue
         
         if torch.cuda.is_available():
@@ -159,7 +159,7 @@ def main(args):
             if args.stable_only:
                 test_path=cfg.data.datamodule.datasets.test[0]["save_path"]
                 cfg.data.datamodule.datasets.test[0]["save_path"] = osp.join(osp.dirname(test_path), 'stable_test_ori.pt')
-            test_loader, datamodule = load_data(cfg.data, running_dir, test_batch_size=40 if args.energy_guidance else None)
+            test_loader, datamodule = load_data(cfg.data, running_dir, test_batch_size=100 if args.energy_guidance else None)
 
         
         if datamodule.scaler is not None:
@@ -171,9 +171,9 @@ def main(args):
     else:
          model, test_loader, cfg = load_model(
             model_path, load_data=True, from_scratch=args.from_scratch)
-         if args.energy_guidance and test_loader.batch_size > 40:
+         if args.energy_guidance and test_loader.batch_size > 100:
             from torch_geometric.loader import DataLoader
-            test_loader = DataLoader(test_loader.dataset, batch_size=40, shuffle=False)
+            test_loader = DataLoader(test_loader.dataset, batch_size=100, shuffle=False)
 
     
     if args.energy_model_path != '':
@@ -194,9 +194,20 @@ def main(args):
 
 
     start_time = time.time()
+    # When energy guidance reduces batch_size, we need more batches to cover
+    # the full test set. If start/end were set for original batch_size, expand
+    # idx_pool to cover all batches in the (possibly smaller) DataLoader.
+    num_loader_batches = len(test_loader)
+    if args.start == -1 and args.end == -1:
+        idx_pool = None
+    elif args.end != -1 and args.end < num_loader_batches:
+        idx_pool = range(args.start, args.end)
+    else:
+        idx_pool = range(args.start, num_loader_batches)
+
     (frac_coords, atom_types, lattices, lengths, angles, num_atoms, input_data_batch, pred_energy, trajs) = diffusion(
         test_loader, model, args.num_evals, \
-        idx_pool=range(args.start, args.end), \
+        idx_pool=idx_pool, \
         energy_model=energy_model,  step_lr=step_lr, energy_guidance=args.energy_guidance, aug=args.aug)
 
     if args.label == '':

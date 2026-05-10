@@ -101,9 +101,9 @@ class CrystDataset(Dataset):
         )
 
         if self.use_space_group:
-            data.spacegroup = torch.LongTensor([data_dict['spacegroup']])
-            data.ops = torch.Tensor(data_dict['wyckoff_ops'])
-            data.anchor_index = torch.LongTensor(data_dict['anchors'])
+            # Use original spacegroup from CSV (preprocessing reduces to P1)
+            orig_sg = int(self.df.iloc[index].get('spacegroup.number', data_dict.get('spacegroup', 1)))
+            data.spacegroup = torch.LongTensor([orig_sg])
 
         if self.use_pos_index:
             pos_dic = {}

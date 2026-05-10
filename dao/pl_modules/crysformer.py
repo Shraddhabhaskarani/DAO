@@ -243,6 +243,7 @@ class CrysFormer(nn.Module):
             param.requires_grad = False
 
         self.atom_latent_emb = nn.Linear(hidden_dim + latent_dim, hidden_dim)
+        self.sg_embedding = nn.Embedding(231, hidden_dim)
         if act_fn == 'silu':
             self.act_fn = nn.SiLU()
         if dis_emb == 'sin':
@@ -388,7 +389,7 @@ class CrysFormer(nn.Module):
 
             return edge_index_new, -edge_vector_new
 
-    def forward(self, t, atom_types, frac_coords, lattices, num_atoms, node2graph, only_rep=False):
+    def forward(self, t, atom_types, frac_coords, lattices, num_atoms, node2graph, spacegroup=None, only_rep=False):
         edges, frac_diff = self.gen_edges(num_atoms, frac_coords, lattices, node2graph)
         edge2graph = node2graph[edges[0]]
 
@@ -399,6 +400,12 @@ class CrysFormer(nn.Module):
 
             node_features = torch.cat([node_features, t_per_atom], dim=1)
             node_features = self.atom_latent_emb(node_features)
+
+            # Add space group conditioning to node features
+            if spacegroup is not None:
+                sg_emb = self.sg_embedding(spacegroup)
+                sg_per_atom = sg_emb.repeat_interleave(num_atoms, dim=0)
+                node_features = node_features + sg_per_atom
 
         for i in range(0, self.num_layers):
             node_features = self._modules["block_%d" % i](node_features, frac_coords, lattices, edges, edge2graph, frac_diff = frac_diff)

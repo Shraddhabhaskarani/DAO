@@ -322,9 +322,15 @@ class CrystGenerativePretrainModel(CrystPretrainModel):
                         grad_outputs = [torch.ones_like(energy_t)]
                         grad_x, grad_l = grad(energy_t, [x_t_minus_05, l_t_minus_05], grad_outputs = grad_outputs, allow_unused=True)
 
+                # Adaptive guidance: ramp up as t→0 to compensate for decaying std_x² and sigmas²
+                t_norm = t / time_start
+                aug_t = aug * (1 + 2.0 * (1 - t_norm))
+                grad_x = torch.clamp(grad_x, -1.0, 1.0)
+                grad_l = torch.clamp(grad_l, -1.0, 1.0)
+
                 pred_x = pred_x * torch.sqrt(sigma_norm)
-                x_t_minus_1 = x_t_minus_05 - step_size * pred_x - (std_x ** 2) * aug * grad_x + std_x * rand_x
-                l_t_minus_1 = c0 * (l_t_minus_05 - c1 * pred_l) - (sigmas ** 2) * aug * grad_l + sigmas * rand_l
+                x_t_minus_1 = x_t_minus_05 - step_size * pred_x - (std_x ** 2) * aug_t * grad_x + std_x * rand_x
+                l_t_minus_1 = c0 * (l_t_minus_05 - c1 * pred_l) - (sigmas ** 2) * aug_t * grad_l + sigmas * rand_l
                 x_t_minus_1 = x_t_minus_1 % 1.
                 del grad_x, grad_l
             else:

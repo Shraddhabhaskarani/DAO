@@ -38,6 +38,49 @@ class CrystFinetuneModel(BaseModule):
 
         self.time_embedding = SinusoidalTimeEmbeddings(self.hparams.time_dim)
 
+    def _sg(self, batch):
+        return getattr(batch, 'spacegroup', None)
+
+    def configure_optimizers(self):
+        base_lr = self.hparams.optim.optimizer.lr
+        num_layers = self.decoder.num_layers
+
+        early_params, mid_params, late_params, head_params = [], [], [], []
+        for name, param in self.named_parameters():
+            if not param.requires_grad:
+                continue
+            if not name.startswith("decoder."):
+                head_params.append(param)
+                continue
+            block_match = name.startswith("decoder.block_")
+            if block_match:
+                layer_idx = int(name.split("block_")[1].split(".")[0])
+                if layer_idx < num_layers // 2:
+                    early_params.append(param)
+                elif layer_idx < num_layers * 3 // 4:
+                    mid_params.append(param)
+                else:
+                    late_params.append(param)
+            else:
+                head_params.append(param)
+
+        param_groups = [
+            {"params": early_params, "lr": base_lr / 10},
+            {"params": mid_params, "lr": base_lr / 5},
+            {"params": late_params, "lr": base_lr / 2},
+            {"params": head_params, "lr": base_lr},
+        ]
+
+        opt = hydra.utils.instantiate(
+            self.hparams.optim.optimizer, params=param_groups, _convert_="partial"
+        )
+        if not self.hparams.optim.use_lr_scheduler:
+            return [opt]
+        scheduler = hydra.utils.instantiate(
+            self.hparams.optim.lr_scheduler, optimizer=opt
+        )
+        return {"optimizer": opt, "lr_scheduler": scheduler, "monitor": "val_loss"}
+
     def forward(self, batch):
         pass
 
@@ -117,7 +160,7 @@ class CrystPredictiveFinetuneModel(CrystFinetuneModel):
         input_lattice = lattices
 
         node_rep, graph_rep = self.decoder(time_emb_zeros, batch.atom_types, input_frac_coords, \
-                                                        input_lattice, batch.num_atoms, batch.batch, only_rep=True)
+                                                        input_lattice, batch.num_atoms, batch.batch, spacegroup=self._sg(batch), only_rep=True)
         pred_scalar = self.predictor(graph_rep)
 
         tar_scalar = batch.y
@@ -154,7 +197,7 @@ class CrystPredictiveFinetuneModel(CrystFinetuneModel):
         lattices = lattice_params_to_matrix_torch(batch.lengths, batch.angles)
 
         time_emb_zeros = self.time_embedding(torch.zeros(batch_size, device=self.device))
-        node_rep, graph_rep = self.decoder(time_emb_zeros, batch.atom_types, frac_coords % 1, lattices, batch.num_atoms, batch.batch, only_rep=True)
+        node_rep, graph_rep = self.decoder(time_emb_zeros, batch.atom_types, frac_coords % 1, lattices, batch.num_atoms, batch.batch, spacegroup=self._sg(batch), only_rep=True)
         pred_scalar = self.predictor(graph_rep)
 
         return pred_scalar.squeeze(-1)
@@ -223,7 +266,7 @@ class CrystGenerativeFinetuneModel(CrystFinetuneModel):
 
 
         pred_l, pred_x, _, _, _, energy_t  = self.decoder(time_emb, batch.atom_types, input_frac_coords, \
-                                                  input_lattice, batch.num_atoms, batch.batch)
+                                                  input_lattice, batch.num_atoms, batch.batch, spacegroup=self._sg(batch))
 
         tar_x = d_log_p_wrapped_normal(sigmas_per_atom * rand_x, sigmas_per_atom) / torch.sqrt(sigmas_norm_per_atom)
         tar_l = rand_l
@@ -297,7 +340,7 @@ class CrystGenerativeFinetuneModel(CrystFinetuneModel):
             step_size = step_lr * (sigma_x / self.sigma_scheduler.sigma_begin) ** 2
             std_x = torch.sqrt(2 * step_size)
 
-            pred_l, pred_x, _, _, _, _ = self.decoder(time_emb, batch.atom_types, x_t, l_t, batch.num_atoms, batch.batch)
+            pred_l, pred_x, _, _, _, _ = self.decoder(time_emb, batch.atom_types, x_t, l_t, batch.num_atoms, batch.batch, spacegroup=self._sg(batch))
 
             pred_x = pred_x * torch.sqrt(sigma_norm)
 
@@ -317,19 +360,25 @@ class CrystGenerativeFinetuneModel(CrystFinetuneModel):
             if energy_guidance:
                 with torch.enable_grad():
                     with RequiresGradContext(x_t_minus_05, l_t_minus_05, requires_grad=True):
-                        pred_l, pred_x, _, _, _, energy_t = self.decoder(time_emb, batch.atom_types, x_t_minus_05, l_t_minus_05, batch.num_atoms, batch.batch)
+                        pred_l, pred_x, _, _, _, energy_t = self.decoder(time_emb, batch.atom_types, x_t_minus_05, l_t_minus_05, batch.num_atoms, batch.batch, spacegroup=self._sg(batch))
                         if energy_model is not None:
                             _, _, _, _, _, energy_t = energy_model.decoder(time_emb, batch.atom_types, x_t_minus_05, l_t_minus_05, batch.num_atoms, batch.batch)
                         grad_outputs = [torch.ones_like(energy_t)]
                         grad_x, grad_l = grad(energy_t, [x_t_minus_05, l_t_minus_05], grad_outputs = grad_outputs, allow_unused=True)
 
+                # Adaptive guidance: ramp up as t→0 to compensate for decaying std_x² and sigmas²
+                t_norm = t / time_start
+                aug_t = aug * (1 + 2.0 * (1 - t_norm))
+                grad_x = torch.clamp(grad_x, -1.0, 1.0)
+                grad_l = torch.clamp(grad_l, -1.0, 1.0)
+
                 pred_x = pred_x * torch.sqrt(sigma_norm)
-                x_t_minus_1 = x_t_minus_05 - step_size * pred_x - (std_x ** 2) * aug * grad_x + std_x * rand_x
-                l_t_minus_1 = c0 * (l_t_minus_05 - c1 * pred_l) - (sigmas ** 2) * aug * grad_l + sigmas * rand_l
+                x_t_minus_1 = x_t_minus_05 - step_size * pred_x - (std_x ** 2) * aug_t * grad_x + std_x * rand_x
+                l_t_minus_1 = c0 * (l_t_minus_05 - c1 * pred_l) - (sigmas ** 2) * aug_t * grad_l + sigmas * rand_l
                 x_t_minus_1 = x_t_minus_1 % 1.
                 del grad_x, grad_l
             else:
-                pred_l, pred_x, _, _, _, _ = self.decoder(time_emb, batch.atom_types, x_t_minus_05, l_t_minus_05, batch.num_atoms, batch.batch)
+                pred_l, pred_x, _, _, _, _ = self.decoder(time_emb, batch.atom_types, x_t_minus_05, l_t_minus_05, batch.num_atoms, batch.batch, spacegroup=self._sg(batch))
                 pred_x = pred_x * torch.sqrt(sigma_norm)
                 x_t_minus_1 = x_t_minus_05 - step_size * pred_x + std_x * rand_x
                 l_t_minus_1 = c0 * (l_t_minus_05 - c1 * pred_l) + sigmas * rand_l
